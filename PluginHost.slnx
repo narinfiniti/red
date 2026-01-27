@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/plugins/">
+    <Project Path="plugins/LinuxPlugin/LinuxPlugin.csproj" />
+    <Project Path="plugins/WindowsPlugin/WindowsPlugin.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/PluginHost.Abstractions/PluginHost.Abstractions.csproj" />
+    <Project Path="src/PluginHost.Api/PluginHost.Api.csproj" />
+    <Project Path="src/PluginHost.Runtime/PluginHost.Runtime.csproj" />
+    <Project Path="src/PluginHost.Security/PluginHost.Security.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PluginHost.Tests/PluginHost.Tests.csproj" />
+  </Folder>
+</Solution>

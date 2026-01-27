@@ -1,0 +1,43 @@
+## Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa]rm/
+[Aa]rm64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio
+.vs/
+*.user
+*.userossc
+*.sln.docstates
+
+## Project files
+*.csproj
+*.vbproj
+*.fsproj
+*.user
+*.suo
+*.sln
+
+## NuGet
+*.nupkg
+project.lock.json
+project.assets.json
+*.nuget.props
+*.nuget.targets
+
+## Others
+.DS_Store
+*.tmp
+*.log
+*.so
+*.dll
+*.exe

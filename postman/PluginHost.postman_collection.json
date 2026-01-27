@@ -1,0 +1,421 @@
+{
+  "info": {
+    "_postman_id": "02b6b50f-7910-4f48-a147-ccda8f1e4272",
+    "name": "PluginHost Secure Client",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "61990"
+  },
+  "item": [
+    {
+      "name": "Handshake - Init",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const toBase64 = (bytes) => {",
+              "  let binary = '';",
+              "  const chunkSize = 0x8000;",
+              "  for (let i = 0; i < bytes.length; i += chunkSize) {",
+              "    const chunk = bytes.subarray(i, i + chunkSize);",
+              "    binary += String.fromCharCode.apply(null, Array.from(chunk));",
+              "  }",
+              "  return btoa(binary);",
+              "};",
+              "",
+              "(async () => {",
+              "  const keyPair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);",
+              "  const publicKeyDer = new Uint8Array(await crypto.subtle.exportKey('spki', keyPair.publicKey));",
+              "  const privateKeyDer = new Uint8Array(await crypto.subtle.exportKey('pkcs8', keyPair.privateKey));",
+              "",
+              "  pm.environment.set('clientPrivateKeyDerBase64', toBase64(privateKeyDer));",
+              "  pm.environment.set('clientPublicKeyBase64', toBase64(publicKeyDer));",
+              "",
+              "  const fingerprintBuffer = await crypto.subtle.digest('SHA-256', publicKeyDer);",
+              "  const clientFingerprint = toBase64(new Uint8Array(fingerprintBuffer));",
+              "  pm.environment.set('clientFingerprint', clientFingerprint);",
+              "})();"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const encoder = new TextEncoder();",
+              "const fromBase64 = (value) => Uint8Array.from(atob(value), c => c.charCodeAt(0));",
+              "const toBase64 = (bytes) => {",
+              "  let binary = '';",
+              "  const chunkSize = 0x8000;",
+              "  for (let i = 0; i < bytes.length; i += chunkSize) {",
+              "    const chunk = bytes.subarray(i, i + chunkSize);",
+              "    binary += String.fromCharCode.apply(null, Array.from(chunk));",
+              "  }",
+              "  return btoa(binary);",
+              "};",
+              "",
+              "(async () => {",
+              "  const json = pm.response.json();",
+              "  const sessionId = json.sessionId;",
+              "  const serverPublicKeyBase64 = json.serverPublicKeyBase64;",
+              "  pm.environment.set('serverPublicKeyBase64', serverPublicKeyBase64);",
+              "",
+              "  const clientPub = fromBase64(pm.environment.get('clientPublicKeyBase64'));",
+              "  const serverPub = fromBase64(serverPublicKeyBase64);",
+              "",
+              "  const salt = new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array([...clientPub, ...serverPub])));",
+              "",
+              "  const privateKey = await crypto.subtle.importKey(",
+              "    'pkcs8',",
+              "    fromBase64(pm.environment.get('clientPrivateKeyDerBase64')),",
+              "    { name: 'ECDH', namedCurve: 'P-256' },",
+              "    false,",
+              "    ['deriveBits']",
+              "  );",
+              "",
+              "  const serverKey = await crypto.subtle.importKey(",
+              "    'spki',",
+              "    serverPub,",
+              "    { name: 'ECDH', namedCurve: 'P-256' },",
+              "    false,",
+              "    []",
+              "  );",
+              "",
+              "  // WebCrypto returns the raw ECDH shared secret. Server uses DeriveKeyFromHash(SHA-256).",
+              "  const sharedSecretRaw = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: serverKey }, privateKey, 256));",
+              "  const sharedSecret = new Uint8Array(await crypto.subtle.digest('SHA-256', sharedSecretRaw));",
+              "",
+              "  const hkdfKey = await crypto.subtle.importKey('raw', sharedSecret, 'HKDF', false, ['deriveBits']);",
+              "  const info = encoder.encode('PluginHost-AES-256-GCM');",
+              "  const aesKey = new Uint8Array(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, hkdfKey, 256));",
+              "",
+              "  pm.environment.set('aesKeyBase64', toBase64(aesKey));",
+              "  pm.environment.set('sessionId', sessionId);",
+              "})();"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"clientPublicKeyBase64\": \"{{clientPublicKeyBase64}}\",\n  \"clientFingerprint\": \"{{clientFingerprint}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/handshake/init",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "handshake",
+            "init"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Plugin Upload",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const encoder = new TextEncoder();",
+              "const fromBase64 = (value) => Uint8Array.from(atob(value), c => c.charCodeAt(0));",
+              "const toBase64 = (bytes) => {",
+              "  let binary = '';",
+              "  const chunkSize = 0x8000;",
+              "  for (let i = 0; i < bytes.length; i += chunkSize) {",
+              "    const chunk = bytes.subarray(i, i + chunkSize);",
+              "    binary += String.fromCharCode.apply(null, Array.from(chunk));",
+              "  }",
+              "  return btoa(binary);",
+              "};",
+              "",
+              "(async () => {",
+              "  const sessionId = pm.environment.get('sessionId');",
+              "  const clientFingerprint = pm.environment.get('clientFingerprint');",
+              "  const aesKeyBase64 = pm.environment.get('aesKeyBase64');",
+              "  if (!sessionId || !clientFingerprint || !aesKeyBase64) {",
+              "    throw new Error('Missing handshake variables. Run Handshake - Init first.');",
+              "  }",
+              "",
+              "  const plaintextBody = pm.variables.replaceIn(pm.request.body.raw);",
+              "  if (!plaintextBody || !plaintextBody.trim()) {",
+              "    throw new Error('No request body to encrypt.');",
+              "  }",
+              "",
+              "  const keyBytes = fromBase64(aesKeyBase64);",
+              "  const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt']);",
+              "  const nonce = crypto.getRandomValues(new Uint8Array(12));",
+              "  const aad = encoder.encode(sessionId + '|' + clientFingerprint);",
+              "  const plaintext = encoder.encode(plaintextBody);",
+              "  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad, tagLength: 128 }, key, plaintext));",
+              "  const tag = encrypted.slice(encrypted.length - 16);",
+              "  const ciphertext = encrypted.slice(0, encrypted.length - 16);",
+              "",
+              "  const envelope = { sessionId, clientFingerprint, nonceBase64: toBase64(nonce), ciphertextBase64: toBase64(ciphertext), tagBase64: toBase64(tag), version: 1 };",
+              "  pm.request.body.update(JSON.stringify(envelope));",
+              "})();"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"pluginName\": {{pluginName}},\r\n    \"assemblyBase64\": {{assemblyBase64}}\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/plugins",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "plugins"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Plugins Get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/plugins",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "plugins"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Execute",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const encoder = new TextEncoder();\r",
+              "const fromBase64 = (value) => Uint8Array.from(atob(value), c => c.charCodeAt(0));\r",
+              "const toBase64 = (bytes) => {\r",
+              "  let binary = '';\r",
+              "  const chunkSize = 0x8000;\r",
+              "  for (let i = 0; i < bytes.length; i += chunkSize) {\r",
+              "    const chunk = bytes.subarray(i, i + chunkSize);\r",
+              "    binary += String.fromCharCode.apply(null, Array.from(chunk));\r",
+              "  }\r",
+              "  return btoa(binary);\r",
+              "};\r",
+              "(async () => {\r",
+              "  const sessionId = pm.environment.get('sessionId');\r",
+              "  const clientFingerprint = pm.environment.get('clientFingerprint');\r",
+              "  const aesKeyBase64 = pm.environment.get('aesKeyBase64');\r",
+              "  if (!sessionId || !clientFingerprint || !aesKeyBase64) {\r",
+              "    throw new Error('Missing handshake variables. Run Handshake - Init first.');\r",
+              "  }\r",
+              "  const plaintextBody = (pm.request && pm.request.body && pm.request.body.raw) ? pm.request.body.raw : '';\r",
+              "  if (!plaintextBody || !plaintextBody.trim()) {\r",
+              "    throw new Error('No request body to encrypt.');\r",
+              "  }\r",
+              "  const keyBytes = fromBase64(aesKeyBase64);\r",
+              "  const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt']);\r",
+              "  const nonce = crypto.getRandomValues(new Uint8Array(12));\r",
+              "  const aad = encoder.encode(sessionId + '|' + clientFingerprint);\r",
+              "  const plaintext = encoder.encode(plaintextBody);\r",
+              "  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad, tagLength: 128 }, key, plaintext));\r",
+              "  const tag = encrypted.slice(encrypted.length - 16);\r",
+              "  const ciphertext = encrypted.slice(0, encrypted.length - 16);\r",
+              "  const envelope = {\r",
+              "    sessionId,\r",
+              "    clientFingerprint,\r",
+              "    nonceBase64: toBase64(nonce),\r",
+              "    ciphertextBase64: toBase64(ciphertext),\r",
+              "    tagBase64: toBase64(tag),\r",
+              "    version: 1\r",
+              "  };\r",
+              "  pm.environment.set('encryptedBody', JSON.stringify(envelope));\r",
+              "  pm.request.body.update(pm.environment.get('encryptedBody'));\r",
+              "})();"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"targetOS\": \"Windows\",\r\n    \"supportedVersion\": \"1.0.0\",\r\n    \"command\": \"notepad.exe\"\r\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/execute",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "execute"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Plugin Unload",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const encoder = new TextEncoder();\r",
+              "const fromBase64 = (value) => Uint8Array.from(atob(value), c => c.charCodeAt(0));\r",
+              "const toBase64 = (bytes) => {\r",
+              "  let binary = '';\r",
+              "  const chunkSize = 0x8000;\r",
+              "  for (let i = 0; i < bytes.length; i += chunkSize) {\r",
+              "    const chunk = bytes.subarray(i, i + chunkSize);\r",
+              "    binary += String.fromCharCode.apply(null, Array.from(chunk));\r",
+              "  }\r",
+              "  return btoa(binary);\r",
+              "};\r",
+              "(async () => {\r",
+              "  const sessionId = pm.environment.get('sessionId');\r",
+              "  const clientFingerprint = pm.environment.get('clientFingerprint');\r",
+              "  const aesKeyBase64 = pm.environment.get('aesKeyBase64');\r",
+              "  if (!sessionId || !clientFingerprint || !aesKeyBase64) {\r",
+              "    throw new Error('Missing handshake variables. Run Handshake - Init first.');\r",
+              "  }\r",
+              "  const keyBytes = fromBase64(aesKeyBase64);\r",
+              "  const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt']);\r",
+              "  const nonce = crypto.getRandomValues(new Uint8Array(12));\r",
+              "  const plaintextBody = JSON.stringify({\r",
+              "    name: pm.environment.get('pluginName'),\r",
+              "    targetOs: pm.environment.get('targetOS'),\r",
+              "    version: pm.environment.get('supportedVersion')\r",
+              "  });\r",
+              "  const aad = encoder.encode(sessionId + '|' + clientFingerprint);\r",
+              "  const plaintext = encoder.encode(plaintextBody);\r",
+              "  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad, tagLength: 128 }, key, plaintext));\r",
+              "  const tag = encrypted.slice(encrypted.length - 16);\r",
+              "  const ciphertext = encrypted.slice(0, encrypted.length - 16);\r",
+              "  const envelope = {\r",
+              "    sessionId,\r",
+              "    clientFingerprint,\r",
+              "    nonceBase64: toBase64(nonce),\r",
+              "    ciphertextBase64: toBase64(ciphertext),\r",
+              "    tagBase64: toBase64(tag),\r",
+              "    version: 1\r",
+              "  };\r",
+              "  pm.environment.set('encryptedBody', JSON.stringify(envelope));\r",
+              "})();"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"name\": \"WindowsEcho\",\r\n    \"targetOs\": \"Windows\",\r\n    \"version\": \"1.0.0\"\r\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/plugins",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "plugins"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": ""
+    },
+    {
+      "key": "clientFingerprint",
+      "value": ""
+    }
+  ]
+}
