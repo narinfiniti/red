@@ -70,6 +70,10 @@ public sealed class EncryptionMiddleware
         {
             await _next(context).ConfigureAwait(false);
         }
+        catch(Exception)
+        {
+            // Swallow exceptions to avoid leaking unencrypted data.
+        }
         finally
         {
             context.Response.Body = originalResponseBody;
@@ -105,6 +109,14 @@ public sealed class EncryptionMiddleware
             return null;
         }
 
-        return JsonSerializer.Deserialize<EncryptedPayload>(body, JsonOptions);
+        try
+        {
+            return JsonSerializer.Deserialize<EncryptedPayload>(body, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            // Not a valid encrypted envelope.
+            return null;
+        }
     }
 }
